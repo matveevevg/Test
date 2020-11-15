@@ -1,0 +1,133 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+import dtale
+import matplotlib.pyplot as plt
+import os
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+
+pd.set_option('use_inf_as_na', True)
+
+os.chdir('C:\ML\scripts\Titanic')
+
+def concat_df(a, b):
+    return pd.concat([a, b], sort=True).reset_index(drop=True)
+
+# read data
+df_train = pd.read_csv('train.csv')
+df_test = pd.read_csv('test.csv')
+df_all = concat_df(df_train, df_test)
+
+feature_scale=[feature for feature in df_all.columns if feature in ['Age','Fare', 'Parch', 'Pclass', 'SibSp']]
+
+scaler = MinMaxScaler()
+scaler.fit(df_all[feature_scale])
+
+df_all = pd.concat([df_all[['PassengerId', 'Name', 'Sex', 'Ticket', 'Cabin', 'Embarked', 'Survived']].reset_index(drop=True),
+                    pd.DataFrame(scaler.transform(df_all[feature_scale]), columns=feature_scale)],
+                    axis=1)
+
+df_all[['Surname','Nm']] = df_all['Name'].str.split(',',expand=True, n=1)
+df_all[['Title','Nm2']] = df_all['Nm'].str.split('.',expand=True, n=1)
+
+df_all['Age'] = df_all['Age'].fillna(df_all.groupby(['Pclass', 'Sex'])['Age'].transform('mean'))
+df_all['Fare'] = df_all['Fare'].fillna(df_all['Fare'].median())
+
+df_all.loc[df_all['Title'].str.contains('Mrs'), 'Married_woman'] = 1
+df_all['Married_woman'] = df_all['Married_woman'].fillna(0)
+df_all['Embarked'] = df_all['Embarked'].fillna('Missing')
+
+# def log_values(feature):
+#     logged_values = []
+#     for x in feature:
+#        if x == 0:
+#            logged_values.append(0)
+#        else:
+#            logged_values.append(np.log(x))
+#            return logged_values
+    
+#df_all['Age'] = np.log2(df_all['Age']).fillna(0)
+#df_all['Fare'] = np.log2(df_all['Fare']).fillna(0)
+
+df_all_cat = pd.get_dummies(df_all, prefix = 'cat', columns = ['Sex', 'Embarked', 'Ticket', 'Surname', 'Title'], drop_first = True)
+
+X_train = df_all_cat.iloc[:891,:]
+X_test = df_all_cat.iloc[891:,:].drop(columns = ['Survived', 'Cabin', 'Name', 'PassengerId', 'Nm', 'Nm2']).reset_index(drop=True)
+
+# find outliers
+outliers = []
+def detect_outliers(data):
+    threshold = 3
+    mean = np.mean(data)
+    std = np.std(data)
+    
+    for i in data:
+        z_score = (i - mean) / std
+        if np.abs(z_score) > threshold:
+            outliers.append(i)
+    return outliers
+
+age_outliers = detect_outliers(X_train['Age'])
+fare_outliers = detect_outliers(X_train['Fare'])
+SibSp_outliers = detect_outliers(X_train['SibSp'])
+Parch_outliers = detect_outliers(X_train['Parch'])
+
+X_train = X_train[~X_train['Age'].isin(age_outliers)]
+X_train = X_train[~X_train['Fare'].isin(fare_outliers)]
+X_train = X_train[~X_train['Parch'].isin(Parch_outliers)]
+X_train = X_train[~X_train['SibSp'].isin(SibSp_outliers)]
+# X = X[~X['Parch'].isin(Parch_outliers)]
+
+y_train = X_train['Survived']
+X_train = X_train.drop(columns = ['Survived', 'Cabin', 'Name', 'PassengerId', 'Nm', 'Nm2'])
+
+X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size = 0.3)
+
+# grid = {'n_estimators': [25],
+#         'max_depth': [30],
+#         'min_samples_leaf': [1],
+#         'min_samples_split': [8]
+#         }
+
+# regressor = RandomForestClassifier()
+# regressor_cv = GridSearchCV(regressor, grid, cv = 5)
+# regressor_cv.fit(X_train, y_train)
+
+regressor2 = RandomForestClassifier(max_depth = 60, min_samples_leaf = 1, min_samples_split = 10, n_estimators = 90)
+regressor2.fit(X_train, y_train)
+
+predictions = regressor2.predict(X_test)
+
+output = pd.DataFrame(predictions)
+output.index = X_test.index
+# # output_all = concat_df(X_test, output)
+output.to_excel('prediction_rf_10.xlsx')
+
+# print('Best parameters RF: ', regressor_cv.best_params_)
+# print('accuracy RF: ', regressor_cv.best_score_)
+
+print('score', regressor2.score(X_val, y_val))
+
+#print('Best parameters SVM: ', regressor_cv_svm.best_params_)
+#print('accuracy SVM: ', regressor_cv_svm.best_score_)
+
+#print(np.logspace(1,3,7))
+#fig1, ax1 = plt.subplots()
+#ax1.boxplot(data_dummies['Parch'])
+
+#corr_matrix = X.corr()
+
+#print(corr_matrix)
+#print(X.head())
+#print(data_dummies['Age'].median())
+#print(data_dummies.isnull().sum())
+#X.to_excel('test1.xlsx')
+#print(y_train.isnull().sum())
+#print(data['Pclass'].value_counts(dropna=False))
+#print(data['Embarked'].value_counts(dropna=False))
+#print(data['Age'].value_counts(dropna=False))
+
+#print(age_outliers)
